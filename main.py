@@ -1,83 +1,45 @@
-from builtins import max
-from threading import local
-
 from functools import lru_cache
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import math
 
-#%% information of the solar plant
 global_longitude = 98.5
 global_latitude = 39.4
 global_altitude = 3000 # meters
 
-#%% multithreads dealing system
 from concurrent.futures import ProcessPoolExecutor
 
 def split_dataframe(df, num_splits, workers, process_func):
-    """
-    Split a DataFrame into arbitrary parts and process them using multiple processes.
-
-    Args:
-        df (pd.DataFrame): The DataFrame to split and process.
-        num_splits (int): The number of splits to create.
-        process_func (callable): A function that processes a DataFrame segment.
-
-    Returns:
-        list: A list of results returned by the processing function for each segment.
-    """
-    # Calculate the number of rows in each split
     split_size = len(df) // num_splits
 
-    # Create a list to store futures and results
     futures = []
 
-    # Use ProcessPoolExecutor to parallelize processing
     with ProcessPoolExecutor(max_workers=workers) as executor:
         for i in range(num_splits):
-            # Calculate the start and end indices for each split
             start_idx = i * split_size
             end_idx = (i + 1) * split_size if i < num_splits - 1 else len(df)
-
-            # Extract the DataFrame segment
             df_segment = df.iloc[start_idx:end_idx]
-
-            # Submit the segment for processing
             future = executor.submit(process_func, df_segment)
             futures.append(future)
-
-    # Wait for all futures to complete and collect results
     results = [future.result() for future in futures]
 
     return results
 
-#%% some function about the sun
 @lru_cache(maxsize=2000)
 def solar_zenith_angle(latitude_deg, declination, hour_angle):
-    """
-    Calculate the solar zenith angle.(太阳高度角)
-
-    :param latitude: Latitude of the location in degrees.
-    :param declination: Solar declination angle in radian.
-    :param hour_angle: Hour angle in radian.
-    :return: Solar zenith angle in radian.
-    """
-    # Convert latitude from degrees to radians
-    latitude = math.radians(latitude_deg)
-
-    # Calculate SZA using the formula
+    latitude = np.radians(latitude_deg)
     sza = (
-        math.asin(
-            math.sin(latitude)
-          * math.sin(declination)
-          + math.cos(latitude)
-          * math.cos(declination)
-          * math.cos(hour_angle)
+        np.arcsin(
+            np.sin(latitude)
+          * np.sin(declination)
+          + np.cos(latitude)
+          * np.cos(declination)
+          * np.cos(hour_angle)
         )
     )
 
-    if sza < 0: return 0
+    if sza < 0: sza = 0
     return sza
 
 def value_cos2b_to_value_cosb(cos_2b):
@@ -86,24 +48,11 @@ def value_cos2b_to_value_cosb(cos_2b):
 from datetime import datetime
 
 def hour_minute_to_decimal_time(hour, minute):
-    """
-    Convert hour and minute to decimal time.
-
-    :param hour: Hour of the day (0-23).
-    :param minute: Minute of the hour (0-59).
-    :return: Decimal time (e.g., 12:30 is 12.5).
-    """
     decimal_time = hour + minute / 60.0
     return decimal_time
 
 @lru_cache(maxsize=2000)
 def solar_declination(day_of_year):
-    """
-    Calculate the solar declination angle.(赤纬角)
-
-    :param day_of_year: Day of the year (1 for January 1st, 365 for December 31st).
-    :return: Solar declination angle in radian.
-    """
     n = day_of_year
     delta = math.asin(math.sin(math.radians(23.45))
           * math.sin(math.radians(360 * (284 + n) / 365)))
@@ -111,26 +60,12 @@ def solar_declination(day_of_year):
 
 @lru_cache(maxsize=2000)
 def hour_angle(local_time):
-    """
-    Calculate the hour angle.(时角)
-
-    :param local_time: the local time (e.g., 12.5 for 12:30).
-    :return: Hour angle in radian.
-    """
     H = (np.pi / 12.0) * (local_time - 12)
     return H
 
 
 @lru_cache(maxsize=2000)
 def day_of_year_from_date(year, month, day):
-    """
-    Calculate the day of the year (DOY) from a given year, month, and day.
-
-    :param year: Year (e.g., 2023).
-    :param month: Month (1-12).
-    :param day: Day (1-31, depending on the month).
-    :return: Day of the year (1 for January 1st, 365 for December 31st).
-    """
     try:
         date_obj = datetime(year, month, day)
         day_of_year = date_obj.timetuple().tm_yday
@@ -141,17 +76,8 @@ def day_of_year_from_date(year, month, day):
 
 @lru_cache(maxsize=2000)
 def solar_azimuth_angle(latitude_deg, zenith_angle):
-    """
-    Calculate the azimuth angle.(方位角)
-
-    :param latitude_deg: Latitude of the location in degrees.
-    :param zenith_angle: Solar zenith angle in radians.
-    :return: Azimuth angle in radians.
-    """
-    # Convert latitude from degrees to radians
     latitude = math.radians(latitude_deg)
 
-    # Calculate azimuth angle using the formula
     azimuth_angle = math.acos(
         (np.sin(latitude) - np.sin(zenith_angle) * np.sin(latitude))
         /(np.cos(zenith_angle) * np.cos(latitude))
@@ -160,64 +86,45 @@ def solar_azimuth_angle(latitude_deg, zenith_angle):
     return azimuth_angle
 
 
-#%% read data
 df = pd.read_excel("auxa.xlsx")
 df['z'] = 4
 
-#%% Create a scatter plot
 plt.scatter(df.x, df.y, label='Heliostat', color='blue', marker='o', s=4)
 
-#%% Add labels and a title
 plt.xlabel('X-axis')
 plt.ylabel('Y-axis')
 plt.title('Heliostat positions')
 
-#%% Add a legend and adjust it to 1:1
 plt.legend()
 plt.axis('equal')
 
-#%% Display the plot
-#plt.show()
-
-#%% Save the plot
-plt.savefig('scatter_plot.png', dpi=300, bbox_inches='tight')
-
 plt.close()
 
-#%% Distance to the origin point
 df['distance'] = ((df.x**2 + df.y**2)**0.5)
 df.distance = df.distance.astype(int)
 distances = df.distance.unique()
 
-#%% Count the number of heliostats at each distance
 counts = []
 for distance in distances:
     counts.append(len(df[df.distance == distance]))
 
-# bind the counts and the distance into one dataframe
 df_distances_counts = pd.DataFrame({'distance': distances, 'count_val': counts})
 df_distances_counts['distancedistract3point5'] = df_distances_counts.distance - 3.5
 
-# Calculate the pitch angle of each heliostat
 df_distances_counts['reflect_with_ground_angle_r'] = np.arctan(80.0 / df_distances_counts.distancedistract3point5)
 df_distances_counts['reflect_with_ground_angle_d'] = df_distances_counts.reflect_with_ground_angle_r * 180 / np.pi
 
-#%% vector from helio to receiver
-# (0, 0, 84) is the receiver position
 df['vector_h2r_x'] = 0 - df.x
 df['vector_h2r_y'] = 0 - df.y
 df['vector_h2r_z'] = 84 - df.z
 df['vector_h2r_len'] = (df.vector_h2r_x**2 + df.vector_h2r_y**2 + df.vector_h2r_z**2)**0.5
 
-# unitilize the vector
 df['vector_h2r_x_unit'] = df.vector_h2r_x / df.vector_h2r_len
 df['vector_h2r_y_unit'] = df.vector_h2r_y / df.vector_h2r_len
 df['vector_h2r_z_unit'] = df.vector_h2r_z / df.vector_h2r_len
 
-#atmospheric attenuation
 df['atmospheric_attenuation'] = 0.99321 - 0.0001176 * df.vector_h2r_len + 1.97e-8 * df.vector_h2r_len**2
 
-#%% vector from helio to sun
 def vector_h2s_x(day_of_year, local_time):
     decli = solar_declination(day_of_year)
     hourang = hour_angle(local_time)
@@ -261,12 +168,6 @@ def cosine_effiency_of_each_heliostat(day_of_year, local_time):
 
 @lru_cache(maxsize=2000)
 def direct_normal_irradiance(day_of_year, local_time, altitude, latitude):
-    """
-    :param day_of_year:
-    :param local_time:
-    :param altitude: altitude of the target position (m)
-    :return kW/m^2:
-    """
     g0 = 1.366 # kW/m^2
     a = 0.4237 - 0.00821 * (6   - altitude/1000)**2
     b = 0.5055 + 0.00595 * (6.5 - altitude/1000)**2
@@ -278,14 +179,7 @@ def direct_normal_irradiance(day_of_year, local_time, altitude, latitude):
     return g0 * (a + b * np.exp(-c/np.sin(zenith))) if zenith != 0 else 0
 
 
-#%% calculate the full reflective power
 def full_reflective_power(day_of_year, local_time, heliostat_area):
-    """
-    :param day_of_year:
-    :param local_time:
-    :param heliostat_area:
-    :return: the power of full reflective (kW)
-    """
     cos_eff = cosine_effiency_of_each_heliostat(day_of_year, local_time)
     return (cos_eff
             * heliostat_area
@@ -296,7 +190,6 @@ def full_reflective_power(day_of_year, local_time, heliostat_area):
                 global_latitude))
 
 
-#%% Calculate the yearly average cosine effiency
 results = []
 for month in range(1, 12 + 1):
     doy = day_of_year_from_date(2023, month, 21)
@@ -314,11 +207,9 @@ for month in range(1, 12 + 1):
     avg_cos_eff = total_cos_eff / len(local_time)
     results.append(avg_cos_eff)
 
-#%% other tests (ready to delete)
 example_doy = day_of_year_from_date(2023, 6, 21)
 example_time = 12
 
-#%% the function of the normal vector of the heliostat
 def normalize_vector(row):
     magnitude = np.linalg.norm(row)  # Calculate the magnitude of the vector
     if magnitude != 0:
@@ -328,11 +219,6 @@ def normalize_vector(row):
 
 @lru_cache(maxsize=1000)
 def normal_vector_of_heliostat(doy, local_time):
-    """
-    :param doy: day of year
-    :param local_time: the current time of your time zone. (eg: 18:00 is 18)
-    :return: the normal vectors of each of the heliostat
-    """
     vec_h2s = vector_of_heliostat_to_sun_unit(doy, local_time)
     normal = df[['vector_h2r_x_unit', 'vector_h2r_y_unit', 'vector_h2r_z_unit']] + vec_h2s
     normal = normal.apply(normalize_vector, axis=1)
@@ -345,38 +231,21 @@ def normal_vector_of_heliostat(doy, local_time):
 @lru_cache(maxsize=1000)
 #%% Calculate the heliostat azimuth angle
 def heliostat_azimuth_angle(doy, local_time):
-    """
-    :param doy: day of year
-    :param local_time: the current time of your time zone. (eg: 18:00 is 18)
-    :return: the azimuth angle of each of the heliostat
-    """
     normal = normal_vector_of_heliostat(doy, local_time)
     azimuth = np.arctan(normal.normal_y_unit / normal.normal_x_unit)
     return azimuth
 
-#%% Calculate the heliostat tilt angle
 @lru_cache(maxsize=1000)
 def heliostat_tilt_angle(doy, local_time):
-    """
-    :param doy: day of year
-    :param local_time: the current time of your time zone. (eg: 18:00 is 18)
-    :return: the tilt angle of each of the heliostat
-    """
     normal = normal_vector_of_heliostat(doy, local_time)
     tilt = np.arctan(np.sqrt(normal.normal_x_unit**2 + normal.normal_y_unit**2) / normal.normal_z_unit)
     return tilt
 
 @lru_cache(maxsize=1000)
 def heliostat_steering_angle(doy, local_time):
-    """
-    :param doy: day of year
-    :param local_time: the current time of your time zone. (eg: 18:00 is 18)
-    :return: the steering angle of each of the heliostat
-    """
     normal = normal_vector_of_heliostat(doy, local_time)
     return np.arctan(normal.normal_y_unit / normal.normal_x_unit)
 
-#%% function calculate the 4 corners of the heliostats
 def up_left_corner_local_coordinate(central_x, central_y, length, width):
     return central_x - 0.5 * length, central_y + 0.5 * width
 
@@ -391,13 +260,6 @@ def down_right_corner_local_coordinate(central_x, central_y, length, width):
 
 @lru_cache(maxsize=2000)
 def each_global_coordinate(local_x, local_y, doy, local_time, width, length):
-    """
-    :param doy: day of year
-    :param local_time: the current time of your time zone. (eg: 18:00 is 18)
-    :param width: the width of the heliostat
-    :param length: the length of the heliostat
-    :return: the global coordinate of the up left corner of the heliostat
-    """
     tilt = heliostat_tilt_angle(doy, local_time)
     steering = heliostat_steering_angle(doy, local_time)
 
@@ -412,47 +274,19 @@ def each_global_coordinate(local_x, local_y, doy, local_time, width, length):
     return global_x, global_y, global_z
 
 def up_left_corner_global_coordinate(doy, local_time, width, length):
-    """
-    :param doy: day of year
-    :param local_time: the current time of your time zone. (eg: 18:00 is 18)
-    :param width: the width of the heliostat
-    :param length: the length of the heliostat
-    :return: the global coordinate of the up left corner of the heliostat
-    """
     local_x, local_y = up_left_corner_local_coordinate(0, 0, length, width)
     return each_global_coordinate(local_x, local_y, doy, local_time, width, length)
 
 def up_right_corner_global_coordinate(doy, local_time, width, length):
-    """
-    :param doy: day of year
-    :param local_time: the current time of your time zone. (eg: 18:00 is 18)
-    :param width: the width of the heliostat
-    :param length: the length of the heliostat
-    :return: the global coordinate of the up right corner of the heliostat
-    """
     local_x, local_y = up_right_corner_local_coordinate(0, 0, length, width)
     return each_global_coordinate(local_x, local_y, doy, local_time, width, length)
 
 
 def down_left_corner_global_coordinate(doy, local_time, width, length):
-    """
-    :param doy: day of year
-    :param local_time: the current time of your time zone. (eg: 18:00 is 18)
-    :param width: the width of the heliostat
-    :param length: the length of the heliostat
-    :return: the global coordinate of the down left corner of the heliostat
-    """
     local_x, local_y = down_left_corner_local_coordinate(0, 0, length, width)
     return each_global_coordinate(local_x, local_y, doy, local_time, width, length)
 
 def down_right_corner_global_coordinate(doy, local_time, width, length):
-    """
-    :param doy: day of year
-    :param local_time: the current time of your time zone. (eg: 18:00 is 18)
-    :param width: the width of the heliostat
-    :param length: the length of the heliostat
-    :return: the global coordinate of the down right corner of the heliostat
-    """
     local_x, local_y = down_right_corner_local_coordinate(0, 0, length, width)
     return each_global_coordinate(local_x, local_y, doy, local_time, width, length)
 
@@ -488,7 +322,6 @@ def projection_of_heliostat_on_the_ground(doy, local_time, width, length):
 
     return result
 
-#%% represent those projection polygon on the ground by shapely
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
 
@@ -496,7 +329,6 @@ def polygon_of_heliostat_on_the_ground(doy, local_time, width, length):
     projection = projection_of_heliostat_on_the_ground(doy, local_time, width, length)
     return projection.apply(lambda x: Polygon(x), axis=1)
 
-#%% overlapping parts of projections of heliostats on the ground
 def overlappings_of_projection(polygons):
     overlappings = []
     for p in polygons:
@@ -506,7 +338,6 @@ def overlappings_of_projection(polygons):
     unions = unary_union(overlappings)
     return unions
 
-#%% shadowing effeciency
 @lru_cache(maxsize=2000)
 def shadowing_efficiency_of_the_whole_field(doy, local_time, width, length):
     zenith = solar_zenith_angle(global_latitude, solar_declination(doy), hour_angle(local_time))
@@ -526,17 +357,6 @@ def shadowing_efficiency_of_the_whole_field(doy, local_time, width, length):
 
     return 1 - overlappings.area / whole_proj.area
 
-#%% tests
-#ps = polygon_of_heliostat_on_the_ground(80, 17, 6, 6)
-#overlappings = split_dataframe(
-#    ps, 60, 12, overlappings_of_projection
-#)
-#overlappings = unary_union(overlappings)
-#print(overlappings.area)
-#print(unary_union(ps).area)
-#print(shadowing_efficiency(80, 12, 6, 6))
-
-#%% solar escaped height
 def height_solar_escaped_ratio_of_each_heliostat(doy, local_time, width, length):
     # height of the lower side of heliostat
     local_x, local_y = down_left_corner_local_coordinate(0, 0, length, width)
@@ -552,9 +372,6 @@ def height_solar_escaped_ratio_of_each_heliostat(doy, local_time, width, length)
     ratio[ratio > 1] = 1
     return ratio
 
-#print(height_solar_escaped_ratio(80, 12, 6, 6))
-
-#%% the turncate effiency
 @lru_cache(maxsize=2000)
 def turncate_efficiency_of_each_heliostat(doy, local_time, width, length):
     return (
@@ -562,7 +379,6 @@ def turncate_efficiency_of_each_heliostat(doy, local_time, width, length):
         / shadowing_efficiency_of_the_whole_field(doy, local_time, width, length)
     )
 
-#%% the optical effiency of heliostats
 @lru_cache(maxsize=1000)
 def optical_efficiency_of_each_heliostat(doy, local_time, width, length, mirror_reflectivity=0.92):
     return (turncate_efficiency_of_each_heliostat(doy, local_time, width, length)
@@ -571,35 +387,28 @@ def optical_efficiency_of_each_heliostat(doy, local_time, width, length, mirror_
             * df.atmospheric_attenuation
             * mirror_reflectivity)
 
-#%% the power of each heliostat
 @lru_cache(maxsize=1000)
 def power_of_each_heliostat(doy, local_time, width, length, mirror_reflectivity=0.92):
     return (optical_efficiency_of_each_heliostat(doy, local_time, width, length, mirror_reflectivity)
             * direct_normal_irradiance(doy, local_time, global_altitude, global_latitude)
             * width * length)
 
-#%% the power of the whole field
 def power_of_the_whole_field(doy, local_time, width, length, mirror_reflectivity=0.92):
     return power_of_each_heliostat(doy, local_time, width, length, mirror_reflectivity).sum()
 
-#%% the power of the whole field per unit area
 def power_of_the_whole_field_per_unit_area(doy, local_time, width, length, field_area, mirror_reflectivity=0.92):
     return power_of_each_heliostat(doy, local_time, width, length, mirror_reflectivity).sum() / field_area
 
-#%% some useful functions of heliostats
 def total_area_of_heliostats(width, length):
     return width * length * len(df)
 
 def number_of_heliostats():
     return len(df)
 
-#%% question 1 solution
 
-# dimension of the heliostats
 width = 6
 length = 6
 
-# local_time
 local_time = []
 local_time.append(9)
 local_time.append(10.5)
@@ -612,8 +421,6 @@ doy = []
 for month in range(1, 13):
     doy.append(day_of_year_from_date(2023, month, 21))
 
-#with ProcessPoolExecutor(12) as executor:
-# day average of each properities of the field
 def cosine_eff_func():
     # cosine eff
     cos_eff = []
@@ -670,41 +477,152 @@ def power_per_unit_func():
         print("power per unit ", d, "day OK")
     return power_per_unit
 
-with ProcessPoolExecutor(max_workers=12) as executor:
-    cos_eff = executor.submit(cosine_eff_func)
-    shadow_eff = executor.submit(shadowing_eff_func)
-    turncate_eff = executor.submit(turncate_eff_func)
-    optical_eff = executor.submit(optical_eff_func)
-    power_per_unit = executor.submit(power_per_unit_func)
+#%% Calclation of the answer of question 1
 
-# arrange those stuff into a DataFrame
-df_q1 = pd.DataFrame()
-df_q1['optical_eff'] = optical_eff.result()
-print("opt ok")
-df_q1['cos_eff'] = cos_eff.result()
-print("cos ok")
-df_q1['shadow_eff'] = shadow_eff.result()
-print("sha ok")
-df_q1['turncate_eff'] = turncate_eff.result()
-print("turn ok")
-df_q1['power_per_unit'] = power_per_unit.result()
-print("power ok")
+def question1_solver():
+    with ProcessPoolExecutor(max_workers=12) as executor:
+        cos_eff = executor.submit(cosine_eff_func)
+        shadow_eff = executor.submit(shadowing_eff_func)
+        turncate_eff = executor.submit(turncate_eff_func)
+        optical_eff = executor.submit(optical_eff_func)
+        power_per_unit = executor.submit(power_per_unit_func)
 
-#%% draw a hot map while color scheme is blue by sns
-# and I want the figure a little bigger which could give me a good print quality
-import seaborn as sns
-df_q1_2 = df_q1.drop('power_per_unit', axis=1)
-sns.heatmap(df_q1_2, cmap='Blues', annot=True, fmt='.3f', linewidths=.5, annot_kws={"size": 10})
-plt.yticks(rotation=0)
-plt.xticks(rotation=0)
-plt.tight_layout()
-plt.savefig('heliostat_properties.png', dpi=300, bbox_inches='tight')
-#plt.show()
-plt.close()
+    # arrange those stuff into a DataFrame
+    df_q1 = pd.DataFrame()
+    df_q1['optical_eff'] = optical_eff.result()
+    print("opt ok")
+    df_q1['cos_eff'] = cos_eff.result()
+    print("cos ok")
+    df_q1['shadow_eff'] = shadow_eff.result()
+    print("sha ok")
+    df_q1['turncate_eff'] = turncate_eff.result()
+    print("turn ok")
+    df_q1['power_per_unit'] = power_per_unit.result()
+    print("power ok")
 
-#%% save the df_q1 into a csv file
-df_q1['month'] = range(1, 13)
-df_q1.to_csv('heliostat_properties.csv')
+    df_q1['month'] = range(1, 13)
+    df_q1_year = df_q1.mean(axis=0)
 
-#%% year average of each properities of the field
-df_q1_year = df_q1.mean(axis=0)
+    return df_q1, df_q1_year
+
+#%% new global corridiante extension
+def local_polar_to_global_rect_corridinate(polar_center_x, polar_center_y, polar_radius, polar_angle):
+    return (
+        polar_center_x + polar_radius * np.cos(polar_angle),
+        polar_center_y + polar_radius * np.sin(polar_angle)
+    )
+
+def out_of_field(rect_x, rect_y):
+    return (rect_x**2 + rect_y**2)**0.5 > 350
+
+def heliostat_rect_corridinate_placing(tower_x, tower_y, receiver_z, distance_each_other, heliostat_height):
+    polar_radius = []
+    polar_angle = []
+    max_heliostat_polar_radius = (tower_x**2 + tower_y**2)**0.5 + 350
+    min_heliostat_polar_radius = 100
+    heliostat_polar_radius = np.arange(min_heliostat_polar_radius, max_heliostat_polar_radius, distance_each_other)
+    for r in heliostat_polar_radius:
+        distance_angle = np.arcsin((distance_each_other) / r)
+        heliostat_polar_angle = np.arange(0, 2*np.pi, distance_angle)
+        if np.abs(heliostat_polar_angle[0] + 2*np.pi - heliostat_polar_angle[-1]) >= distance_angle:
+            polar_radius.append(r)
+            polar_angle.append(heliostat_polar_angle[0])
+        for a in heliostat_polar_angle[1:]:
+            polar_radius.append(r)
+            polar_angle.append(a)
+
+    df = pd.DataFrame({'r': polar_radius, 'a': polar_angle})
+    df['x'], df['y'] = local_polar_to_global_rect_corridinate(tower_x, tower_y, df.r, df.a)
+    df = df[~df.apply(lambda x: out_of_field(x.x, x.y), axis=1)]
+
+    #other useful information of those heliostats
+    df['z'] = heliostat_height
+    df['distance_to_tower'] = df.r
+    df['distance'] = df.r
+    df['vector_h2r_x_unit'] = tower_x - df.x
+    df['vector_h2r_y_unit'] = tower_y - df.y
+    df['vector_h2r_z_unit'] = receiver_z - df.z
+    df['len_h2r'] = (df.vector_h2r_x_unit**2 + df.vector_h2r_y_unit**2 + df.vector_h2r_z_unit**2)**0.5
+    df['vector_h2r_x_unit'] = df.vector_h2r_x_unit / df.len_h2r
+    df['vector_h2r_y_unit'] = df.vector_h2r_y_unit / df.len_h2r
+    df['vector_h2r_z_unit'] = df.vector_h2r_z_unit / df.len_h2r
+    df['atmospheric_attenuation'] = 0.99321 - 0.0001176 * df.len_h2r + 1.97e-8 * df.len_h2r** 2
+
+    return df
+
+def plot_heliostat_field(df):
+    plt.scatter(df.x, df.y, label='Heliostat', color='blue', marker='o', s=4)
+
+    plt.xlabel('X-axis')
+    plt.ylabel('Y-axis')
+    plt.title('Heliostat positions')
+
+    plt.legend()
+    plt.axis('equal')
+    plt.show()
+    plt.close()
+
+#%% test
+df_new = heliostat_rect_corridinate_placing(-260, 40, 84, 12.777, 5)
+plot_heliostat_field(df_new)
+df = df_new
+
+#%% question 2 solution
+width = 5
+length = 8
+#new_sln_per_month, new_sln_per_year = question1_solver()
+
+#%% critical seasonal time point
+doy_spring_equinox = day_of_year_from_date(2023, 3, 21)
+doy_summer_solstice = day_of_year_from_date(2023, 6, 21)
+doy_autumn_equinox = day_of_year_from_date(2023, 9, 21)
+doy_winter_solstice = day_of_year_from_date(2023, 12, 21)
+time_duration = np.arange(4, 21, 0.1)
+
+#%% plot the zenith angle function
+
+#prepare the dataset
+zenith_spring_equinox = []
+zenith_summer_solstice = []
+zenith_autumn_equinox = []
+zenith_winter_solstice = []
+for t in time_duration:
+    zenith_spring_equinox.append(solar_zenith_angle(global_latitude, solar_declination(doy_spring_equinox), hour_angle(t)))
+    zenith_summer_solstice.append(solar_zenith_angle(global_latitude, solar_declination(doy_summer_solstice), hour_angle(t)))
+    zenith_autumn_equinox.append(solar_zenith_angle(global_latitude, solar_declination(doy_autumn_equinox), hour_angle(t)))
+    zenith_winter_solstice.append(solar_zenith_angle(global_latitude, solar_declination(doy_winter_solstice), hour_angle(t)))
+
+zenith_spring_df = pd.DataFrame()
+zenith_spring_df['doy'] = [doy_spring_equinox for i in range(len(time_duration))]
+zenith_spring_df['time'] = time_duration
+zenith_spring_df['zenith'] = zenith_spring_equinox
+
+zenith_summer_df = pd.DataFrame()
+zenith_summer_df['doy'] = [doy_summer_solstice for i in range(len(time_duration))]
+zenith_summer_df['time'] = time_duration
+zenith_summer_df['zenith'] = zenith_summer_solstice
+
+zenith_autumn_df = pd.DataFrame()
+zenith_autumn_df['doy'] = [doy_autumn_equinox for i in range(len(time_duration))]
+zenith_autumn_df['time'] = time_duration
+zenith_autumn_df['zenith'] = zenith_autumn_equinox
+
+zenith_winter_df = pd.DataFrame()
+zenith_winter_df['doy'] = [doy_winter_solstice for i in range(len(time_duration))]
+zenith_winter_df['time'] = time_duration
+zenith_winter_df['zenith'] = zenith_winter_solstice
+
+#%% function plot X, Y
+def plot_zenith(zenith_df, name):
+    plt.rcParams['font.sans-serif'] = ['SimHei']  # 用来正常显示中文标签
+    plt.rcParams['axes.unicode_minus'] = False  # 用来正常显示负号
+    fig, ax = plt.subplots()
+    ax.plot(zenith_df.time, zenith_df.zenith, label='太阳高度角')
+    ax.set_ylim(0, 1.7)
+    plt.savefig(name)
+    plt.close()
+
+plot_zenith(zenith_spring_df, "spring")
+plot_zenith(zenith_summer_df, "summer")
+plot_zenith(zenith_autumn_df, "autumnn")
+plot_zenith(zenith_winter_df, "winter")
